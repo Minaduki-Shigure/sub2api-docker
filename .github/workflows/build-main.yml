@@ -23,7 +23,7 @@ env:
   UPSTREAM_REPO: ${{ vars.UPSTREAM_SUB2API_REPO || 'Wei-Shaw/sub2api' }}
   UPSTREAM_REF: ${{ vars.UPSTREAM_SUB2API_REF || 'main' }}
   BUILD_POLICY_VERSION: ${{ vars.BUILD_POLICY_VERSION || '1' }}
-  ARM32_SORA_PATCH_VERSION: disabled-sdk-v1
+  ARM32_SORA_PATCH_VERSION: disabled-sdk-v2
   FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
 
 jobs:
@@ -66,12 +66,13 @@ jobs:
           path: upstream
           fetch-depth: 0
 
-      - name: Patch upstream for arm32 Sora builds
+      - name: Patch upstream for arm32 compatibility
         shell: bash
         run: |
           set -euo pipefail
 
           sdk_file="upstream/backend/internal/service/sora_sdk_client.go"
+          gemini_file="upstream/backend/internal/service/gemini_oauth_service.go"
           if ! grep -q '^//go:build !arm$' "${sdk_file}"; then
             tmp_file="$(mktemp)"
             {
@@ -187,18 +188,21 @@ jobs:
           }
           EOF
 
+          perl -0pi -e 's/const \(\n\tGB = 1024 \* 1024 \* 1024\n\tTB = 1024 \* GB\n/const (\n\tGB int64 = 1024 * 1024 * 1024\n\tTB int64 = 1024 * GB\n/s' "${gemini_file}"
+
       - name: Report arm32 Sora compatibility patch
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "::notice title=ARM32 Sora patch enabled::Applied ${ARM32_SORA_PATCH_VERSION}. arm/v6 and arm/v7 builds compile with Sora SDK disabled."
+          echo "::notice title=ARM32 compatibility patch enabled::Applied ${ARM32_SORA_PATCH_VERSION}. arm/v6 and arm/v7 builds compile with Sora SDK disabled and int64 constant fixes."
           {
             echo "## ARM32 Sora compatibility"
             echo
             echo "- Patch version: \`${ARM32_SORA_PATCH_VERSION}\`"
             echo "- Scope: \`linux/arm/v6\`, \`linux/arm/v7\`"
             echo "- Behavior: Sora SDK is replaced with a stub on 32-bit ARM builds"
+            echo "- Extra fix: Gemini OAuth storage constants are rewritten to \`int64\` on 32-bit ARM builds"
             echo "- Effect: arm32 images can build, but Sora SDK features are unavailable on arm32"
           } >>"$GITHUB_STEP_SUMMARY"
 
