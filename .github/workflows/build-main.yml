@@ -23,7 +23,7 @@ env:
   UPSTREAM_REPO: ${{ vars.UPSTREAM_SUB2API_REPO || 'Wei-Shaw/sub2api' }}
   UPSTREAM_REF: ${{ vars.UPSTREAM_SUB2API_REF || 'main' }}
   BUILD_POLICY_VERSION: ${{ vars.BUILD_POLICY_VERSION || '1' }}
-  ARM32_SORA_PATCH_VERSION: disabled-sdk-v2
+  ARM32_PATCHSET_VERSION: arm32-patchset-v4
   FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
 
 jobs:
@@ -66,13 +66,14 @@ jobs:
           path: upstream
           fetch-depth: 0
 
-      - name: Patch upstream for arm32 compatibility
+      - name: Apply arm32 compatibility patchset
         shell: bash
         run: |
           set -euo pipefail
 
           sdk_file="upstream/backend/internal/service/sora_sdk_client.go"
           gemini_file="upstream/backend/internal/service/gemini_oauth_service.go"
+          billing_cache_file="upstream/backend/internal/repository/billing_cache.go"
           if ! grep -q '^//go:build !arm$' "${sdk_file}"; then
             tmp_file="$(mktemp)"
             {
@@ -189,21 +190,32 @@ jobs:
           EOF
 
           perl -0pi -e 's/const \(\n\tGB = 1024 \* 1024 \* 1024\n\tTB = 1024 \* GB\n/const (\n\tGB int64 = 1024 * 1024 * 1024\n\tTB int64 = 1024 * GB\n/s' "${gemini_file}"
+          perl -0pi -e 's/time\.Duration\(rand\.IntN\(int\(billingCacheJitter\)\)\)/time.Duration(rand.Int64N(int64(billingCacheJitter)))/g' "${billing_cache_file}"
 
-      - name: Report arm32 Sora compatibility patch
+      - name: Report arm32 compatibility patchset
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "::notice title=ARM32 compatibility patch enabled::Applied ${ARM32_SORA_PATCH_VERSION}. arm/v6 and arm/v7 builds compile with Sora SDK disabled and int64 constant fixes."
+          echo "::notice title=ARM32 compatibility patchset enabled::Applied ${ARM32_PATCHSET_VERSION}. arm/v6 and arm/v7 builds compile with targeted source patches."
           {
-            echo "## ARM32 Sora compatibility"
+            echo "## ARM32 compatibility patchset"
             echo
-            echo "- Patch version: \`${ARM32_SORA_PATCH_VERSION}\`"
+            echo "- Patchset version: \`${ARM32_PATCHSET_VERSION}\`"
             echo "- Scope: \`linux/arm/v6\`, \`linux/arm/v7\`"
-            echo "- Behavior: Sora SDK is replaced with a stub on 32-bit ARM builds"
-            echo "- Extra fix: Gemini OAuth storage constants are rewritten to \`int64\` on 32-bit ARM builds"
-            echo "- Effect: arm32 images can build, but Sora SDK features are unavailable on arm32"
+            echo
+            echo "### Confirmed build blockers patched"
+            echo "- Sora SDK dependency is disabled on arm32 by replacing \`sora_sdk_client.go\` with an arm-only stub"
+            echo "- Gemini OAuth storage constants are rewritten to \`int64\`"
+            echo "- Billing cache jitter now uses \`rand.Int64N(int64(...))\` instead of overflowing \`int(...)\` casts"
+            echo
+            echo "### Known behavior impact"
+            echo "- arm32 images can build"
+            echo "- Sora SDK features are unavailable on arm32"
+            echo
+            echo "### Watchlist from repo scan"
+            echo "- Multiple \`int(time.Until(...).Seconds())\` and \`int(duration.Milliseconds())\` conversions remain in the codebase"
+            echo "- They are runtime conversions, not current compile blockers, so this patchset leaves them unchanged"
           } >>"$GITHUB_STEP_SUMMARY"
 
       - name: Plan build
@@ -296,7 +308,7 @@ jobs:
           runtime_base_digest_armv6=${base_digest_armv6}
           runtime_base_digest_armv7=${base_digest_armv7}
           build_policy_version=${BUILD_POLICY_VERSION}
-          arm32_sora_patch_version=${ARM32_SORA_PATCH_VERSION}
+          arm32_patchset_version=${ARM32_PATCHSET_VERSION}
           EOF
           )"
           expected_fingerprint="$(printf '%s' "$fingerprint_source" | sha256sum | awk '{print $1}')"
@@ -331,6 +343,33 @@ jobs:
         run: |
           echo "Published latest image fingerprint already matches the desired fingerprint."
 
+      - name: Audit arm32 watchlist
+        if: steps.plan.outputs.needs_build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          watchlist_file="${RUNNER_TEMP}/arm32-watchlist-main.txt"
+          rg -n 'int\(time\.(Until|Since)\([^)]+\)\.(Seconds|Milliseconds)\(\)\)|int\([A-Za-z0-9_\.]+\.Milliseconds\(\)\)|int\([A-Za-z0-9_\.]+\.Seconds\(\)\)' \
+            upstream/backend -g '!**/*_test.go' >"${watchlist_file}" || true
+
+          count="$(wc -l <"${watchlist_file}" | tr -d ' ')"
+          if [[ "${count}" -gt 0 ]]; then
+            echo "::notice title=ARM32 watchlist::Detected ${count} duration-to-int patterns worth reviewing for 32-bit ARM."
+            {
+              echo
+              echo "### ARM32 watchlist details"
+              echo "- Count: ${count}"
+              echo
+              echo '```text'
+              sed -n '1,20p' "${watchlist_file}"
+              if [[ "${count}" -gt 20 ]]; then
+                echo "... (${count} total matches)"
+              fi
+              echo '```'
+            } >>"$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Build frontend
         if: steps.plan.outputs.needs_build == 'true'
         working-directory: upstream/frontend
@@ -339,6 +378,36 @@ jobs:
           set -euo pipefail
           pnpm install --frozen-lockfile
           pnpm run build
+
+      - name: Preflight arm32 compile
+        if: steps.plan.outputs.needs_build == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          preflight_compile() {
+            local goarm="$1"
+            local out="${RUNNER_TEMP}/sub2api-armv${goarm}-preflight"
+            (
+              cd upstream/backend
+              CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM="${goarm}" go build \
+                -tags embed \
+                -trimpath \
+                -o "${out}" \
+                ./cmd/server
+            )
+            echo "::notice title=ARM32 preflight passed::linux/arm/v${goarm} preflight compile succeeded."
+          }
+
+          preflight_compile 6
+          preflight_compile 7
+
+          {
+            echo
+            echo "### ARM32 preflight compile"
+            echo "- \`linux/arm/v6\`: passed"
+            echo "- \`linux/arm/v7\`: passed"
+          } >>"$GITHUB_STEP_SUMMARY"
 
       - name: Build binaries and push arch tags
         if: steps.plan.outputs.needs_build == 'true'
