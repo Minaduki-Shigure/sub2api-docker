@@ -132,7 +132,113 @@ jobs:
 
           image_repo="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sub2api"
           work_root="${RUNNER_TEMP}/sub2api-release-reconcile"
+          sora_sdk_arm_template="${RUNNER_TEMP}/sora_sdk_client_arm.go.template"
           mkdir -p "${work_root}"
+
+          cat >"${sora_sdk_arm_template}" <<'EOF'
+          //go:build arm
+          // +build arm
+
+          package service
+
+          import (
+          	"context"
+          	"net/http"
+
+          	"github.com/Wei-Shaw/sub2api/internal/config"
+          )
+
+          const soraSDKDisabledOnARM32Message = "Sora SDK is disabled on 32-bit ARM builds"
+
+          type SoraSDKClient struct {
+          	cfg *config.Config
+          }
+
+          func NewSoraSDKClient(cfg *config.Config, httpUpstream HTTPUpstream, tokenProvider *OpenAITokenProvider) *SoraSDKClient {
+          	return &SoraSDKClient{cfg: cfg}
+          }
+
+          func (c *SoraSDKClient) SetAccountRepositories(accountRepo AccountRepository, soraAccountRepo SoraAccountRepository) {}
+
+          func (c *SoraSDKClient) Enabled() bool {
+          	return false
+          }
+
+          func (c *SoraSDKClient) unsupportedError() error {
+          	return &SoraUpstreamError{
+          		StatusCode: http.StatusServiceUnavailable,
+          		Message:    soraSDKDisabledOnARM32Message,
+          	}
+          }
+
+          func (c *SoraSDKClient) UploadImage(ctx context.Context, account *Account, data []byte, filename string) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) CreateImageTask(ctx context.Context, account *Account, req SoraImageRequest) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) CreateVideoTask(ctx context.Context, account *Account, req SoraVideoRequest) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) CreateStoryboardTask(ctx context.Context, account *Account, req SoraStoryboardRequest) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) UploadCharacterVideo(ctx context.Context, account *Account, data []byte) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) GetCameoStatus(ctx context.Context, account *Account, cameoID string) (*SoraCameoStatus, error) {
+          	return nil, c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) DownloadCharacterImage(ctx context.Context, account *Account, imageURL string) ([]byte, error) {
+          	return nil, c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) UploadCharacterImage(ctx context.Context, account *Account, data []byte) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) FinalizeCharacter(ctx context.Context, account *Account, req SoraCharacterFinalizeRequest) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) SetCharacterPublic(ctx context.Context, account *Account, cameoID string) error {
+          	return c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) DeleteCharacter(ctx context.Context, account *Account, characterID string) error {
+          	return c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) PostVideoForWatermarkFree(ctx context.Context, account *Account, generationID string) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) DeletePost(ctx context.Context, account *Account, postID string) error {
+          	return c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) GetWatermarkFreeURLCustom(ctx context.Context, account *Account, parseURL, parseToken, postID string) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) EnhancePrompt(ctx context.Context, account *Account, prompt, expansionLevel string, durationS int) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) GetImageTask(ctx context.Context, account *Account, taskID string) (*SoraImageTaskStatus, error) {
+          	return nil, c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) GetVideoTask(ctx context.Context, account *Account, taskID string) (*SoraVideoTaskStatus, error) {
+          	return nil, c.unsupportedError()
+          }
+          EOF
 
           apply_arm32_patchset() {
             local repo_root="$1"
@@ -153,110 +259,7 @@ jobs:
               mv "${tmp_file}" "${sdk_file}"
             fi
 
-            cat >"${repo_root}/backend/internal/service/sora_sdk_client_arm.go" <<'EOF'
-            //go:build arm
-            // +build arm
-
-            package service
-
-            import (
-            	"context"
-            	"net/http"
-
-            	"github.com/Wei-Shaw/sub2api/internal/config"
-            )
-
-            const soraSDKDisabledOnARM32Message = "Sora SDK is disabled on 32-bit ARM builds"
-
-            type SoraSDKClient struct {
-            	cfg *config.Config
-            }
-
-            func NewSoraSDKClient(cfg *config.Config, httpUpstream HTTPUpstream, tokenProvider *OpenAITokenProvider) *SoraSDKClient {
-            	return &SoraSDKClient{cfg: cfg}
-            }
-
-            func (c *SoraSDKClient) SetAccountRepositories(accountRepo AccountRepository, soraAccountRepo SoraAccountRepository) {}
-
-            func (c *SoraSDKClient) Enabled() bool {
-            	return false
-            }
-
-            func (c *SoraSDKClient) unsupportedError() error {
-            	return &SoraUpstreamError{
-            		StatusCode: http.StatusServiceUnavailable,
-            		Message:    soraSDKDisabledOnARM32Message,
-            	}
-            }
-
-            func (c *SoraSDKClient) UploadImage(ctx context.Context, account *Account, data []byte, filename string) (string, error) {
-            	return "", c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) CreateImageTask(ctx context.Context, account *Account, req SoraImageRequest) (string, error) {
-            	return "", c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) CreateVideoTask(ctx context.Context, account *Account, req SoraVideoRequest) (string, error) {
-            	return "", c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) CreateStoryboardTask(ctx context.Context, account *Account, req SoraStoryboardRequest) (string, error) {
-            	return "", c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) UploadCharacterVideo(ctx context.Context, account *Account, data []byte) (string, error) {
-            	return "", c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) GetCameoStatus(ctx context.Context, account *Account, cameoID string) (*SoraCameoStatus, error) {
-            	return nil, c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) DownloadCharacterImage(ctx context.Context, account *Account, imageURL string) ([]byte, error) {
-            	return nil, c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) UploadCharacterImage(ctx context.Context, account *Account, data []byte) (string, error) {
-            	return "", c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) FinalizeCharacter(ctx context.Context, account *Account, req SoraCharacterFinalizeRequest) (string, error) {
-            	return "", c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) SetCharacterPublic(ctx context.Context, account *Account, cameoID string) error {
-            	return c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) DeleteCharacter(ctx context.Context, account *Account, characterID string) error {
-            	return c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) PostVideoForWatermarkFree(ctx context.Context, account *Account, generationID string) (string, error) {
-            	return "", c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) DeletePost(ctx context.Context, account *Account, postID string) error {
-            	return c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) GetWatermarkFreeURLCustom(ctx context.Context, account *Account, parseURL, parseToken, postID string) (string, error) {
-            	return "", c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) EnhancePrompt(ctx context.Context, account *Account, prompt, expansionLevel string, durationS int) (string, error) {
-            	return "", c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) GetImageTask(ctx context.Context, account *Account, taskID string) (*SoraImageTaskStatus, error) {
-            	return nil, c.unsupportedError()
-            }
-
-            func (c *SoraSDKClient) GetVideoTask(ctx context.Context, account *Account, taskID string) (*SoraVideoTaskStatus, error) {
-            	return nil, c.unsupportedError()
-            }
-            EOF
+            cp "${sora_sdk_arm_template}" "${repo_root}/backend/internal/service/sora_sdk_client_arm.go"
 
             perl -0pi -e 's/const \(\n\tGB = 1024 \* 1024 \* 1024\n\tTB = 1024 \* GB\n/const (\n\tGB int64 = 1024 * 1024 * 1024\n\tTB int64 = 1024 * GB\n/s' "${gemini_file}"
             perl -0pi -e 's/time\.Duration\(rand\.IntN\(int\(billingCacheJitter\)\)\)/time.Duration(rand.Int64N(int64(billingCacheJitter)))/g' "${billing_cache_file}"
