@@ -1,4 +1,4 @@
-name: Reconcile Sub2API Release Tags
+name: Reconcile Sub2API Release Tags Test
 
 on:
   schedule:
