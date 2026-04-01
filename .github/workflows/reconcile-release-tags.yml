@@ -27,7 +27,7 @@ env:
   UPSTREAM_REPO: ${{ vars.UPSTREAM_SUB2API_REPO || 'Wei-Shaw/sub2api' }}
   RELEASE_TAG_LOOKBACK: ${{ vars.RELEASE_TAG_LOOKBACK || '20' }}
   BUILD_POLICY_VERSION: ${{ vars.BUILD_POLICY_VERSION || '1' }}
-  ARM32_SORA_PATCH_VERSION: disabled-sdk-v1
+  ARM32_SORA_PATCH_VERSION: disabled-sdk-v2
   FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
   REQUESTED_TAGS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tags || '' }}
 
@@ -101,13 +101,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "::notice title=ARM32 Sora patch enabled::Applied ${ARM32_SORA_PATCH_VERSION}. arm/v6 and arm/v7 release builds compile with Sora SDK disabled."
+          echo "::notice title=ARM32 compatibility patch enabled::Applied ${ARM32_SORA_PATCH_VERSION}. arm/v6 and arm/v7 release builds compile with Sora SDK disabled and int64 constant fixes."
           {
             echo "## ARM32 Sora compatibility"
             echo
             echo "- Patch version: \`${ARM32_SORA_PATCH_VERSION}\`"
             echo "- Scope: \`linux/arm/v6\`, \`linux/arm/v7\`"
             echo "- Behavior: Sora SDK is replaced with a stub on 32-bit ARM builds"
+            echo "- Extra fix: Gemini OAuth storage constants are rewritten to \`int64\` on 32-bit ARM builds"
             echo "- Effect: arm32 images can build, but Sora SDK features are unavailable on arm32"
           } >>"$GITHUB_STEP_SUMMARY"
 
@@ -126,6 +127,7 @@ jobs:
           apply_arm32_sora_sdk_patch() {
             local repo_root="$1"
             local sdk_file="${repo_root}/backend/internal/service/sora_sdk_client.go"
+            local gemini_file="${repo_root}/backend/internal/service/gemini_oauth_service.go"
 
             echo "Applying arm32 Sora SDK compatibility patch ${ARM32_SORA_PATCH_VERSION} in ${repo_root}"
 
@@ -244,6 +246,8 @@ jobs:
             	return nil, c.unsupportedError()
             }
             EOF
+
+            perl -0pi -e 's/const \(\n\tGB = 1024 \* 1024 \* 1024\n\tTB = 1024 \* GB\n/const (\n\tGB int64 = 1024 * 1024 * 1024\n\tTB int64 = 1024 * GB\n/s' "${gemini_file}"
           }
 
           resolve_dockerfile_base_image() {
@@ -508,7 +512,7 @@ jobs:
             git -C upstream checkout --force "${upstream_tag}" >/dev/null
             git -C upstream clean -fdx >/dev/null
             apply_arm32_sora_sdk_patch upstream
-            echo "::notice title=ARM32 Sora patch applied::${upstream_tag} will build arm/v6 and arm/v7 with Sora SDK disabled (${ARM32_SORA_PATCH_VERSION})."
+            echo "::notice title=ARM32 compatibility patch applied::${upstream_tag} will build arm/v6 and arm/v7 with Sora SDK disabled and int64 constant fixes (${ARM32_SORA_PATCH_VERSION})."
 
             exact_version="${upstream_tag#v}"
             upstream_sha="$(git -C upstream rev-parse HEAD)"
