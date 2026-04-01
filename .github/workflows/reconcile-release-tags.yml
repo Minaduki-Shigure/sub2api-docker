@@ -509,6 +509,23 @@ jobs:
             }
             trap cleanup_smoke EXIT
 
+            wait_until_ready() {
+              local description="$1"
+              local command="$2"
+              local attempts="$3"
+              local sleep_seconds="$4"
+
+              for _ in $(seq 1 "${attempts}"); do
+                if eval "${command}" >/dev/null 2>&1; then
+                  return 0
+                fi
+                sleep "${sleep_seconds}"
+              done
+
+              echo "${description} did not become ready in time" >&2
+              return 1
+            }
+
             docker network create sub2api-release-smoke >/dev/null
             docker run -d --rm \
               --name sub2api-release-smoke-postgres \
@@ -522,19 +539,17 @@ jobs:
               --network sub2api-release-smoke \
               redis:8-alpine >/dev/null
 
-            for _ in $(seq 1 30); do
-              if docker exec sub2api-release-smoke-postgres pg_isready -U sub2api -d sub2api >/dev/null 2>&1; then
-                break
-              fi
-              sleep 2
-            done
+            wait_until_ready \
+              "Postgres" \
+              "docker exec sub2api-release-smoke-postgres pg_isready -U sub2api -d sub2api" \
+              45 \
+              2
 
-            for _ in $(seq 1 30); do
-              if docker exec sub2api-release-smoke-redis redis-cli ping | grep -q PONG; then
-                break
-              fi
-              sleep 2
-            done
+            wait_until_ready \
+              "Redis" \
+              "docker exec sub2api-release-smoke-redis redis-cli ping | grep -q PONG" \
+              45 \
+              2
 
             docker run -d --rm \
               --name sub2api-release-smoke-app \
@@ -557,11 +572,22 @@ jobs:
               -e TOTP_ENCRYPTION_KEY=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 \
               "${image_repo}:${exact_version}-amd64" >/dev/null
 
-            for _ in $(seq 1 60); do
+            for attempt in $(seq 1 120); do
+              if ! docker ps --format '{{.Names}}' | grep -qx sub2api-release-smoke-app; then
+                echo "Sub2API release smoke container exited before /health became ready" >&2
+                docker logs sub2api-release-smoke-app || true
+                exit 1
+              fi
+
               if curl -fsS http://127.0.0.1:18081/health >/dev/null; then
                 cleanup_smoke
                 trap - EXIT
                 return 0
+              fi
+
+              if (( attempt % 15 == 0 )); then
+                echo "Release smoke test still waiting for /health (attempt ${attempt}/120)"
+                docker logs --tail 20 sub2api-release-smoke-app || true
               fi
               sleep 2
             done
