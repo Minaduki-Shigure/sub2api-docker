@@ -592,10 +592,14 @@ jobs:
               exit 1
             fi
 
-            if curl -fsS http://127.0.0.1:18080/health >/dev/null; then
+            if curl -fsS http://127.0.0.1:18080/health >/dev/null 2>&1; then
+              echo "Smoke test passed on attempt ${attempt}"
               exit 0
             fi
 
+            if (( attempt <= 5 )); then
+              echo "Smoke test probe ${attempt} did not pass yet"
+            fi
             if (( attempt % 15 == 0 )); then
               echo "Smoke test still waiting for /health (attempt ${attempt}/120)"
               docker logs --tail 20 sub2api-smoke-app || true
