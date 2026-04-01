@@ -1,4 +1,4 @@
-name: Build Sub2API Main
+name: Build Sub2API Main Test
 
 on:
   schedule:
