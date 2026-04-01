@@ -461,21 +461,16 @@ jobs:
             preflight_arm32_compile "${upstream_tag}" "${version_value}" "${upstream_sha}" "${build_date}"
             build_binaries "${version_value}" "${upstream_sha}" "${build_date}" "${bin_root}"
 
-            for suffix in amd64 arm64 armv6 armv7; do
-              local context_dir="${tag_root}/${suffix}"
-              mkdir -p "${context_dir}"
-              cp upstream/Dockerfile.goreleaser "${context_dir}/Dockerfile.goreleaser"
-              cp "${bin_root}/sub2api-${suffix}" "${context_dir}/sub2api"
-            done
-
             build_arch() {
               local suffix="$1"
               local platform="$2"
-              local context_dir="${tag_root}/${suffix}"
+
+              cp "${bin_root}/sub2api-${suffix}" upstream/sub2api
+              chmod +x upstream/sub2api
 
               docker buildx build \
                 --platform "${platform}" \
-                --file "${context_dir}/Dockerfile.goreleaser" \
+                --file upstream/Dockerfile.goreleaser \
                 --tag "${image_repo}:${exact_version}-${suffix}" \
                 --label "org.opencontainers.image.title=sub2api" \
                 --label "org.opencontainers.image.source=https://github.com/${UPSTREAM_REPO}" \
@@ -495,7 +490,7 @@ jobs:
                 --provenance=false \
                 --sbom=false \
                 --push \
-                "${context_dir}"
+                upstream
             }
 
             build_arch amd64 linux/amd64
