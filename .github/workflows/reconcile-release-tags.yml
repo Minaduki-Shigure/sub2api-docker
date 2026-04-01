@@ -1,0 +1,406 @@
+name: Reconcile Sub2API Release Tags
+
+on:
+  schedule:
+    - cron: "43 2 * * *"
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: "Optional comma, space, or newline separated upstream tags (for example: v1.2.3,v1.2.4)"
+        required: false
+        type: string
+      force:
+        description: "Force rebuild even when the published fingerprint matches"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: sub2api-reconcile-release-tags
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: ${{ vars.UPSTREAM_SUB2API_REPO || 'Wei-Shaw/sub2api' }}
+  RELEASE_TAG_LOOKBACK: ${{ vars.RELEASE_TAG_LOOKBACK || '20' }}
+  BUILD_POLICY_VERSION: ${{ vars.BUILD_POLICY_VERSION || '1' }}
+  FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
+  REQUESTED_TAGS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tags || '' }}
+
+jobs:
+  reconcile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.1"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check out upstream repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          path: upstream
+          fetch-depth: 0
+
+      - name: Select release tags
+        id: tags
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -n "${REQUESTED_TAGS}" ]]; then
+            printf '%s' "${REQUESTED_TAGS}" \
+              | tr ', ' '\n\n' \
+              | sed '/^$/d' \
+              | awk '{ if ($0 !~ /^v/) { print "v" $0 } else { print $0 } }' \
+              | sort -u >"${RUNNER_TEMP}/release-tags.txt"
+          else
+            git -C upstream fetch --tags --force
+            git -C upstream tag --list 'v*' \
+              | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+              | sort -Vr \
+              | head -n "${RELEASE_TAG_LOOKBACK}" >"${RUNNER_TEMP}/release-tags.txt"
+          fi
+
+          count="$(wc -l <"${RUNNER_TEMP}/release-tags.txt" | tr -d ' ')"
+          {
+            echo "count=${count}"
+            echo "file=${RUNNER_TEMP}/release-tags.txt"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Reconcile exact and moving tags
+        if: steps.tags.outputs.count != '0'
+        shell: bash
+        env:
+          TAG_FILE: ${{ steps.tags.outputs.file }}
+        run: |
+          set -euo pipefail
+
+          image_repo="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sub2api"
+          work_root="${RUNNER_TEMP}/sub2api-release-reconcile"
+          mkdir -p "${work_root}"
+
+          published_fingerprint() {
+            local logical_tag="$1"
+            if docker pull "${image_repo}:${logical_tag}-amd64" >/dev/null 2>&1; then
+              docker image inspect "${image_repo}:${logical_tag}-amd64" --format '{{ index .Config.Labels "io.github.ghcr-builder.fingerprint" }}' 2>/dev/null || true
+            fi
+          }
+
+          base_digests() {
+            local base_image="$1"
+            local raw_manifest
+            raw_manifest="$(docker buildx imagetools inspect --raw "${base_image}")"
+
+            digest_for() {
+              local arch="$1"
+              local variant="$2"
+              jq -r --arg arch "$arch" --arg variant "$variant" '
+                .manifests[]
+                | select(.platform.os == "linux")
+                | select(.platform.architecture == $arch)
+                | select((.platform.variant // "") == $variant)
+                | .digest
+              ' <<<"${raw_manifest}" | head -n1
+            }
+
+            printf '%s\n' \
+              "$(digest_for amd64 "")" \
+              "$(digest_for arm64 "v8")" \
+              "$(digest_for arm "v6")" \
+              "$(digest_for arm "v7")"
+          }
+
+          build_binaries() {
+            local version_value="$1"
+            local upstream_sha="$2"
+            local build_date="$3"
+            local bin_root="$4"
+
+            mkdir -p "${bin_root}"
+
+            build_one() {
+              local suffix="$1"
+              local goarch="$2"
+              local goarm="$3"
+              local -a env_args=(CGO_ENABLED=0 GOOS=linux GOARCH="${goarch}")
+              if [[ -n "${goarm}" ]]; then
+                env_args+=(GOARM="${goarm}")
+              fi
+
+              (
+                cd upstream/backend
+                env "${env_args[@]}" go build \
+                  -tags embed \
+                  -trimpath \
+                  -ldflags="-s -w -X main.Version=${version_value} -X main.Commit=${upstream_sha} -X main.Date=${build_date} -X main.BuildType=release" \
+                  -o "${bin_root}/sub2api-${suffix}" \
+                  ./cmd/server
+              )
+            }
+
+            build_one amd64 amd64 ""
+            build_one arm64 arm64 ""
+            build_one armv6 arm 6
+            build_one armv7 arm 7
+          }
+
+          build_and_push_tag() {
+            local exact_version="$1"
+            local upstream_tag="$2"
+            local upstream_sha="$3"
+            local build_date="$4"
+            local version_value="$5"
+            local base_image="$6"
+            local base_digest_amd64="$7"
+            local base_digest_arm64="$8"
+            local base_digest_armv6="$9"
+            local base_digest_armv7="${10}"
+            local fingerprint="${11}"
+
+            local tag_root="${work_root}/${exact_version}"
+            local bin_root="${tag_root}/bin"
+
+            rm -rf "${tag_root}"
+            mkdir -p "${tag_root}"
+
+            (
+              cd upstream/frontend
+              pnpm install --frozen-lockfile
+              pnpm run build
+            )
+
+            build_binaries "${version_value}" "${upstream_sha}" "${build_date}" "${bin_root}"
+
+            for suffix in amd64 arm64 armv6 armv7; do
+              local context_dir="${tag_root}/${suffix}"
+              mkdir -p "${context_dir}"
+              cp upstream/Dockerfile.goreleaser "${context_dir}/Dockerfile.goreleaser"
+              cp "${bin_root}/sub2api-${suffix}" "${context_dir}/sub2api"
+            done
+
+            build_arch() {
+              local suffix="$1"
+              local platform="$2"
+              local context_dir="${tag_root}/${suffix}"
+
+              docker buildx build \
+                --platform "${platform}" \
+                --file "${context_dir}/Dockerfile.goreleaser" \
+                --tag "${image_repo}:${exact_version}-${suffix}" \
+                --label "org.opencontainers.image.title=sub2api" \
+                --label "org.opencontainers.image.source=https://github.com/${UPSTREAM_REPO}" \
+                --label "org.opencontainers.image.revision=${upstream_sha}" \
+                --label "org.opencontainers.image.version=${exact_version}" \
+                --label "org.opencontainers.image.created=${build_date}" \
+                --label "io.github.ghcr-builder.upstream-repo=${UPSTREAM_REPO}" \
+                --label "io.github.ghcr-builder.upstream-ref=${upstream_tag}" \
+                --label "io.github.ghcr-builder.upstream-sha=${upstream_sha}" \
+                --label "io.github.ghcr-builder.build-policy-version=${BUILD_POLICY_VERSION}" \
+                --label "io.github.ghcr-builder.runtime-base-image=${base_image}" \
+                --label "io.github.ghcr-builder.runtime-base-digest-amd64=${base_digest_amd64}" \
+                --label "io.github.ghcr-builder.runtime-base-digest-arm64=${base_digest_arm64}" \
+                --label "io.github.ghcr-builder.runtime-base-digest-armv6=${base_digest_armv6}" \
+                --label "io.github.ghcr-builder.runtime-base-digest-armv7=${base_digest_armv7}" \
+                --label "io.github.ghcr-builder.fingerprint=${fingerprint}" \
+                --provenance=false \
+                --sbom=false \
+                --push \
+                "${context_dir}"
+            }
+
+            build_arch amd64 linux/amd64
+            build_arch arm64 linux/arm64
+            build_arch armv6 linux/arm/v6
+            build_arch armv7 linux/arm/v7
+
+            docker run --rm --platform linux/amd64 "${image_repo}:${exact_version}-amd64" -version
+            docker run --rm --platform linux/arm64 "${image_repo}:${exact_version}-arm64" -version
+            docker run --rm --platform linux/arm/v6 "${image_repo}:${exact_version}-armv6" -version
+            docker run --rm --platform linux/arm/v7 "${image_repo}:${exact_version}-armv7" -version
+
+            cleanup_smoke() {
+              docker rm -f sub2api-release-smoke-app sub2api-release-smoke-postgres sub2api-release-smoke-redis >/dev/null 2>&1 || true
+              docker network rm sub2api-release-smoke >/dev/null 2>&1 || true
+            }
+            trap cleanup_smoke EXIT
+
+            docker network create sub2api-release-smoke >/dev/null
+            docker run -d --rm \
+              --name sub2api-release-smoke-postgres \
+              --network sub2api-release-smoke \
+              -e POSTGRES_USER=sub2api \
+              -e POSTGRES_PASSWORD=sub2api \
+              -e POSTGRES_DB=sub2api \
+              postgres:18-alpine >/dev/null
+            docker run -d --rm \
+              --name sub2api-release-smoke-redis \
+              --network sub2api-release-smoke \
+              redis:8-alpine >/dev/null
+
+            for _ in $(seq 1 30); do
+              if docker exec sub2api-release-smoke-postgres pg_isready -U sub2api -d sub2api >/dev/null 2>&1; then
+                break
+              fi
+              sleep 2
+            done
+
+            for _ in $(seq 1 30); do
+              if docker exec sub2api-release-smoke-redis redis-cli ping | grep -q PONG; then
+                break
+              fi
+              sleep 2
+            done
+
+            docker run -d --rm \
+              --name sub2api-release-smoke-app \
+              --network sub2api-release-smoke \
+              -p 18081:8080 \
+              -e AUTO_SETUP=true \
+              -e SERVER_HOST=0.0.0.0 \
+              -e SERVER_PORT=8080 \
+              -e DATABASE_HOST=sub2api-release-smoke-postgres \
+              -e DATABASE_PORT=5432 \
+              -e DATABASE_USER=sub2api \
+              -e DATABASE_PASSWORD=sub2api \
+              -e DATABASE_DBNAME=sub2api \
+              -e DATABASE_SSLMODE=disable \
+              -e REDIS_HOST=sub2api-release-smoke-redis \
+              -e REDIS_PORT=6379 \
+              -e ADMIN_EMAIL=admin@example.com \
+              -e ADMIN_PASSWORD=admin-password \
+              -e JWT_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+              -e TOTP_ENCRYPTION_KEY=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 \
+              "${image_repo}:${exact_version}-amd64" >/dev/null
+
+            for _ in $(seq 1 60); do
+              if curl -fsS http://127.0.0.1:18081/health >/dev/null; then
+                cleanup_smoke
+                trap - EXIT
+                return 0
+              fi
+              sleep 2
+            done
+
+            docker logs sub2api-release-smoke-app || true
+            echo "Smoke test for ${exact_version} did not reach /health in time" >&2
+            exit 1
+          }
+
+          declare -A minor_source=()
+          declare -A major_source=()
+
+          while IFS= read -r upstream_tag; do
+            [[ -z "${upstream_tag}" ]] && continue
+
+            git -C upstream checkout --force "${upstream_tag}" >/dev/null
+            git -C upstream clean -fdx >/dev/null
+
+            exact_version="${upstream_tag#v}"
+            upstream_sha="$(git -C upstream rev-parse HEAD)"
+            version_value="$(tr -d '\r\n' < upstream/backend/cmd/server/VERSION)"
+            build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            base_image="$(awk 'toupper($1) == "FROM" { print $2; exit }' upstream/Dockerfile.goreleaser)"
+
+            mapfile -t digests < <(base_digests "${base_image}")
+            base_digest_amd64="${digests[0]}"
+            base_digest_arm64="${digests[1]}"
+            base_digest_armv6="${digests[2]}"
+            base_digest_armv7="${digests[3]}"
+
+            fingerprint_source="$(cat <<EOF
+            type=sub2api
+            logical_tag=${exact_version}
+            upstream_repo=${UPSTREAM_REPO}
+            upstream_ref=${upstream_tag}
+            upstream_sha=${upstream_sha}
+            runtime_base_image=${base_image}
+            runtime_base_digest_amd64=${base_digest_amd64}
+            runtime_base_digest_arm64=${base_digest_arm64}
+            runtime_base_digest_armv6=${base_digest_armv6}
+            runtime_base_digest_armv7=${base_digest_armv7}
+            build_policy_version=${BUILD_POLICY_VERSION}
+            EOF
+            )"
+            expected_fingerprint="$(printf '%s' "${fingerprint_source}" | sha256sum | awk '{print $1}')"
+            current_fingerprint="$(published_fingerprint "${exact_version}")"
+
+            if [[ "${FORCE_REBUILD}" == "true" || -z "${current_fingerprint}" || "${current_fingerprint}" != "${expected_fingerprint}" ]]; then
+              build_and_push_tag \
+                "${exact_version}" \
+                "${upstream_tag}" \
+                "${upstream_sha}" \
+                "${build_date}" \
+                "${version_value}" \
+                "${base_image}" \
+                "${base_digest_amd64}" \
+                "${base_digest_arm64}" \
+                "${base_digest_armv6}" \
+                "${base_digest_armv7}" \
+                "${expected_fingerprint}"
+            else
+              echo "Skipping ${exact_version}; published fingerprint already matches."
+            fi
+
+            docker buildx imagetools create \
+              --tag "${image_repo}:${exact_version}" \
+              "${image_repo}:${exact_version}-amd64" \
+              "${image_repo}:${exact_version}-arm64" \
+              "${image_repo}:${exact_version}-armv6" \
+              "${image_repo}:${exact_version}-armv7"
+
+            IFS=. read -r major minor patch <<<"${exact_version}"
+            if [[ -z "${minor_source[${major}.${minor}]:-}" ]]; then
+              minor_source["${major}.${minor}"]="${exact_version}"
+            fi
+            if [[ -z "${major_source[${major}]:-}" ]]; then
+              major_source["${major}"]="${exact_version}"
+            fi
+          done <"${TAG_FILE}"
+
+          for moving_tag in "${!minor_source[@]}"; do
+            source_tag="${minor_source[${moving_tag}]}"
+            docker buildx imagetools create \
+              --tag "${image_repo}:${moving_tag}" \
+              "${image_repo}:${source_tag}-amd64" \
+              "${image_repo}:${source_tag}-arm64" \
+              "${image_repo}:${source_tag}-armv6" \
+              "${image_repo}:${source_tag}-armv7"
+          done
+
+          for moving_tag in "${!major_source[@]}"; do
+            source_tag="${major_source[${moving_tag}]}"
+            docker buildx imagetools create \
+              --tag "${image_repo}:${moving_tag}" \
+              "${image_repo}:${source_tag}-amd64" \
+              "${image_repo}:${source_tag}-arm64" \
+              "${image_repo}:${source_tag}-armv6" \
+              "${image_repo}:${source_tag}-armv7"
+          done

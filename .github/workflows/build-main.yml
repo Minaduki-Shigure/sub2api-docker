@@ -1,0 +1,350 @@
+name: Build Sub2API Main
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Force rebuild even when the published fingerprint matches"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: sub2api-build-main
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: ${{ vars.UPSTREAM_SUB2API_REPO || 'Wei-Shaw/sub2api' }}
+  UPSTREAM_REF: ${{ vars.UPSTREAM_SUB2API_REF || 'main' }}
+  BUILD_POLICY_VERSION: ${{ vars.BUILD_POLICY_VERSION || '1' }}
+  FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
+
+jobs:
+  build-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "20"
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.1"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check out upstream repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ env.UPSTREAM_REF }}
+          path: upstream
+          fetch-depth: 0
+
+      - name: Plan build
+        id: plan
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          image_repo="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sub2api"
+          base_image="$(awk 'toupper($1) == "FROM" { print $2; exit }' upstream/Dockerfile.goreleaser)"
+
+          raw_manifest="$(docker buildx imagetools inspect --raw "$base_image")"
+
+          digest_for() {
+            local arch="$1"
+            local variant="$2"
+            jq -r --arg arch "$arch" --arg variant "$variant" '
+              .manifests[]
+              | select(.platform.os == "linux")
+              | select(.platform.architecture == $arch)
+              | select((.platform.variant // "") == $variant)
+              | .digest
+            ' <<<"$raw_manifest" | head -n1
+          }
+
+          base_digest_amd64="$(digest_for amd64 "")"
+          base_digest_arm64="$(digest_for arm64 "v8")"
+          base_digest_armv6="$(digest_for arm "v6")"
+          base_digest_armv7="$(digest_for arm "v7")"
+          upstream_sha="$(git -C upstream rev-parse HEAD)"
+          version_value="$(tr -d '\r\n' < upstream/backend/cmd/server/VERSION)"
+          build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+          fingerprint_source="$(cat <<EOF
+          type=sub2api
+          logical_tag=latest
+          upstream_repo=${UPSTREAM_REPO}
+          upstream_ref=${UPSTREAM_REF}
+          upstream_sha=${upstream_sha}
+          runtime_base_image=${base_image}
+          runtime_base_digest_amd64=${base_digest_amd64}
+          runtime_base_digest_arm64=${base_digest_arm64}
+          runtime_base_digest_armv6=${base_digest_armv6}
+          runtime_base_digest_armv7=${base_digest_armv7}
+          build_policy_version=${BUILD_POLICY_VERSION}
+          EOF
+          )"
+          expected_fingerprint="$(printf '%s' "$fingerprint_source" | sha256sum | awk '{print $1}')"
+
+          current_fingerprint=""
+          if docker pull "${image_repo}:latest-amd64" >/dev/null 2>&1; then
+            current_fingerprint="$(docker image inspect "${image_repo}:latest-amd64" --format '{{ index .Config.Labels "io.github.ghcr-builder.fingerprint" }}' 2>/dev/null || true)"
+          fi
+
+          needs_build=true
+          if [[ "${FORCE_REBUILD}" != "true" && -n "${current_fingerprint}" && "${current_fingerprint}" == "${expected_fingerprint}" ]]; then
+            needs_build=false
+          fi
+
+          {
+            echo "image_repo=${image_repo}"
+            echo "base_image=${base_image}"
+            echo "base_digest_amd64=${base_digest_amd64}"
+            echo "base_digest_arm64=${base_digest_arm64}"
+            echo "base_digest_armv6=${base_digest_armv6}"
+            echo "base_digest_armv7=${base_digest_armv7}"
+            echo "upstream_sha=${upstream_sha}"
+            echo "version_value=${version_value}"
+            echo "build_date=${build_date}"
+            echo "expected_fingerprint=${expected_fingerprint}"
+            echo "needs_build=${needs_build}"
+          } >>"$GITHUB_OUTPUT"
+
+      - name: Skip unchanged build
+        if: steps.plan.outputs.needs_build != 'true'
+        shell: bash
+        run: |
+          echo "Published latest image fingerprint already matches the desired fingerprint."
+
+      - name: Build frontend
+        if: steps.plan.outputs.needs_build == 'true'
+        working-directory: upstream/frontend
+        shell: bash
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Build binaries and push arch tags
+        if: steps.plan.outputs.needs_build == 'true'
+        shell: bash
+        env:
+          IMAGE_REPO: ${{ steps.plan.outputs.image_repo }}
+          UPSTREAM_SHA: ${{ steps.plan.outputs.upstream_sha }}
+          VERSION_VALUE: ${{ steps.plan.outputs.version_value }}
+          BUILD_DATE: ${{ steps.plan.outputs.build_date }}
+          EXPECTED_FINGERPRINT: ${{ steps.plan.outputs.expected_fingerprint }}
+          BASE_IMAGE: ${{ steps.plan.outputs.base_image }}
+          BASE_DIGEST_AMD64: ${{ steps.plan.outputs.base_digest_amd64 }}
+          BASE_DIGEST_ARM64: ${{ steps.plan.outputs.base_digest_arm64 }}
+          BASE_DIGEST_ARMV6: ${{ steps.plan.outputs.base_digest_armv6 }}
+          BASE_DIGEST_ARMV7: ${{ steps.plan.outputs.base_digest_armv7 }}
+        run: |
+          set -euo pipefail
+
+          work_root="${RUNNER_TEMP}/sub2api-main"
+          bin_root="${work_root}/bin"
+          mkdir -p "${bin_root}"
+
+          build_binary() {
+            local suffix="$1"
+            local goarch="$2"
+            local goarm="$3"
+
+            local -a env_args=(CGO_ENABLED=0 GOOS=linux GOARCH="${goarch}")
+            if [[ -n "${goarm}" ]]; then
+              env_args+=(GOARM="${goarm}")
+            fi
+
+            (
+              cd upstream/backend
+              env "${env_args[@]}" go build \
+                -tags embed \
+                -trimpath \
+                -ldflags="-s -w -X main.Version=${VERSION_VALUE} -X main.Commit=${UPSTREAM_SHA} -X main.Date=${BUILD_DATE} -X main.BuildType=release" \
+                -o "${bin_root}/sub2api-${suffix}" \
+                ./cmd/server
+            )
+          }
+
+          build_binary amd64 amd64 ""
+          build_binary arm64 arm64 ""
+          build_binary armv6 arm 6
+          build_binary armv7 arm 7
+
+          create_context() {
+            local suffix="$1"
+            local dir="${work_root}/${suffix}"
+            mkdir -p "${dir}"
+            cp upstream/Dockerfile.goreleaser "${dir}/Dockerfile.goreleaser"
+            cp "${bin_root}/sub2api-${suffix}" "${dir}/sub2api"
+          }
+
+          create_context amd64
+          create_context arm64
+          create_context armv6
+          create_context armv7
+
+          build_arch_image() {
+            local suffix="$1"
+            local platform="$2"
+            local context_dir="${work_root}/${suffix}"
+
+            docker buildx build \
+              --platform "${platform}" \
+              --file "${context_dir}/Dockerfile.goreleaser" \
+              --tag "${IMAGE_REPO}:latest-${suffix}" \
+              --label "org.opencontainers.image.title=sub2api" \
+              --label "org.opencontainers.image.source=https://github.com/${UPSTREAM_REPO}" \
+              --label "org.opencontainers.image.revision=${UPSTREAM_SHA}" \
+              --label "org.opencontainers.image.version=${VERSION_VALUE}" \
+              --label "org.opencontainers.image.created=${BUILD_DATE}" \
+              --label "io.github.ghcr-builder.upstream-repo=${UPSTREAM_REPO}" \
+              --label "io.github.ghcr-builder.upstream-ref=${UPSTREAM_REF}" \
+              --label "io.github.ghcr-builder.upstream-sha=${UPSTREAM_SHA}" \
+              --label "io.github.ghcr-builder.build-policy-version=${BUILD_POLICY_VERSION}" \
+              --label "io.github.ghcr-builder.runtime-base-image=${BASE_IMAGE}" \
+              --label "io.github.ghcr-builder.runtime-base-digest-amd64=${BASE_DIGEST_AMD64}" \
+              --label "io.github.ghcr-builder.runtime-base-digest-arm64=${BASE_DIGEST_ARM64}" \
+              --label "io.github.ghcr-builder.runtime-base-digest-armv6=${BASE_DIGEST_ARMV6}" \
+              --label "io.github.ghcr-builder.runtime-base-digest-armv7=${BASE_DIGEST_ARMV7}" \
+              --label "io.github.ghcr-builder.fingerprint=${EXPECTED_FINGERPRINT}" \
+              --provenance=false \
+              --sbom=false \
+              --push \
+              "${context_dir}"
+          }
+
+          build_arch_image amd64 linux/amd64
+          build_arch_image arm64 linux/arm64
+          build_arch_image armv6 linux/arm/v6
+          build_arch_image armv7 linux/arm/v7
+
+      - name: Verify arch tags
+        if: steps.plan.outputs.needs_build == 'true'
+        shell: bash
+        env:
+          IMAGE_REPO: ${{ steps.plan.outputs.image_repo }}
+        run: |
+          set -euo pipefail
+
+          docker run --rm --platform linux/amd64 "${IMAGE_REPO}:latest-amd64" -version
+          docker run --rm --platform linux/arm64 "${IMAGE_REPO}:latest-arm64" -version
+          docker run --rm --platform linux/arm/v6 "${IMAGE_REPO}:latest-armv6" -version
+          docker run --rm --platform linux/arm/v7 "${IMAGE_REPO}:latest-armv7" -version
+
+      - name: Smoke test amd64 image
+        if: steps.plan.outputs.needs_build == 'true'
+        shell: bash
+        env:
+          IMAGE_REPO: ${{ steps.plan.outputs.image_repo }}
+        run: |
+          set -euo pipefail
+
+          cleanup() {
+            docker rm -f sub2api-smoke-app sub2api-smoke-postgres sub2api-smoke-redis >/dev/null 2>&1 || true
+            docker network rm sub2api-smoke >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          docker network create sub2api-smoke >/dev/null
+
+          docker run -d --rm \
+            --name sub2api-smoke-postgres \
+            --network sub2api-smoke \
+            -e POSTGRES_USER=sub2api \
+            -e POSTGRES_PASSWORD=sub2api \
+            -e POSTGRES_DB=sub2api \
+            postgres:18-alpine >/dev/null
+
+          docker run -d --rm \
+            --name sub2api-smoke-redis \
+            --network sub2api-smoke \
+            redis:8-alpine >/dev/null
+
+          for _ in $(seq 1 30); do
+            if docker exec sub2api-smoke-postgres pg_isready -U sub2api -d sub2api >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+
+          for _ in $(seq 1 30); do
+            if docker exec sub2api-smoke-redis redis-cli ping | grep -q PONG; then
+              break
+            fi
+            sleep 2
+          done
+
+          docker run -d --rm \
+            --name sub2api-smoke-app \
+            --network sub2api-smoke \
+            -p 18080:8080 \
+            -e AUTO_SETUP=true \
+            -e SERVER_HOST=0.0.0.0 \
+            -e SERVER_PORT=8080 \
+            -e DATABASE_HOST=sub2api-smoke-postgres \
+            -e DATABASE_PORT=5432 \
+            -e DATABASE_USER=sub2api \
+            -e DATABASE_PASSWORD=sub2api \
+            -e DATABASE_DBNAME=sub2api \
+            -e DATABASE_SSLMODE=disable \
+            -e REDIS_HOST=sub2api-smoke-redis \
+            -e REDIS_PORT=6379 \
+            -e ADMIN_EMAIL=admin@example.com \
+            -e ADMIN_PASSWORD=admin-password \
+            -e JWT_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef \
+            -e TOTP_ENCRYPTION_KEY=abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789 \
+            "${IMAGE_REPO}:latest-amd64" >/dev/null
+
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:18080/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs sub2api-smoke-app || true
+          echo "Sub2API amd64 smoke test did not reach /health in time" >&2
+          exit 1
+
+      - name: Publish latest manifest
+        if: steps.plan.outputs.needs_build == 'true'
+        shell: bash
+        env:
+          IMAGE_REPO: ${{ steps.plan.outputs.image_repo }}
+        run: |
+          set -euo pipefail
+
+          docker buildx imagetools create \
+            --tag "${IMAGE_REPO}:latest" \
+            "${IMAGE_REPO}:latest-amd64" \
+            "${IMAGE_REPO}:latest-arm64" \
+            "${IMAGE_REPO}:latest-armv6" \
+            "${IMAGE_REPO}:latest-armv7"
