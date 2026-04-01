@@ -74,6 +74,7 @@ jobs:
           sdk_file="upstream/backend/internal/service/sora_sdk_client.go"
           gemini_file="upstream/backend/internal/service/gemini_oauth_service.go"
           billing_cache_file="upstream/backend/internal/repository/billing_cache.go"
+          sora_sdk_arm_template="${RUNNER_TEMP}/sora_sdk_client_arm.go.template"
           if ! grep -q '^//go:build !arm$' "${sdk_file}"; then
             tmp_file="$(mktemp)"
             {
@@ -84,7 +85,7 @@ jobs:
             mv "${tmp_file}" "${sdk_file}"
           fi
 
-          cat >upstream/backend/internal/service/sora_sdk_client_arm.go <<'EOF'
+          cat >"${sora_sdk_arm_template}" <<'EOF'
           //go:build arm
           // +build arm
 
@@ -188,6 +189,8 @@ jobs:
           	return nil, c.unsupportedError()
           }
           EOF
+
+          cp "${sora_sdk_arm_template}" upstream/backend/internal/service/sora_sdk_client_arm.go
 
           perl -0pi -e 's/const \(\n\tGB = 1024 \* 1024 \* 1024\n\tTB = 1024 \* GB\n/const (\n\tGB int64 = 1024 * 1024 * 1024\n\tTB int64 = 1024 * GB\n/s' "${gemini_file}"
           perl -0pi -e 's/time\.Duration\(rand\.IntN\(int\(billingCacheJitter\)\)\)/time.Duration(rand.Int64N(int64(billingCacheJitter)))/g' "${billing_cache_file}"
