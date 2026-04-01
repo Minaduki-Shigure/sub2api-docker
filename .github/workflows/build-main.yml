@@ -456,27 +456,16 @@ jobs:
           build_binary armv6 arm 6
           build_binary armv7 arm 7
 
-          create_context() {
-            local suffix="$1"
-            local dir="${work_root}/${suffix}"
-            mkdir -p "${dir}"
-            cp upstream/Dockerfile.goreleaser "${dir}/Dockerfile.goreleaser"
-            cp "${bin_root}/sub2api-${suffix}" "${dir}/sub2api"
-          }
-
-          create_context amd64
-          create_context arm64
-          create_context armv6
-          create_context armv7
-
           build_arch_image() {
             local suffix="$1"
             local platform="$2"
-            local context_dir="${work_root}/${suffix}"
+
+            cp "${bin_root}/sub2api-${suffix}" upstream/sub2api
+            chmod +x upstream/sub2api
 
             docker buildx build \
               --platform "${platform}" \
-              --file "${context_dir}/Dockerfile.goreleaser" \
+              --file upstream/Dockerfile.goreleaser \
               --tag "${IMAGE_REPO}:latest-${suffix}" \
               --label "org.opencontainers.image.title=sub2api" \
               --label "org.opencontainers.image.source=https://github.com/${UPSTREAM_REPO}" \
@@ -496,7 +485,7 @@ jobs:
               --provenance=false \
               --sbom=false \
               --push \
-              "${context_dir}"
+              upstream
           }
 
           build_arch_image amd64 linux/amd64
