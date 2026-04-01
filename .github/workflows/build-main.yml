@@ -1,4 +1,4 @@
-name: Build Sub2API Main Test
+name: Build Sub2API Main
 
 on:
   schedule:
@@ -72,7 +72,54 @@ jobs:
           set -euo pipefail
 
           image_repo="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/sub2api"
-          base_image="$(awk 'toupper($1) == "FROM" { print $2; exit }' upstream/Dockerfile.goreleaser)"
+
+          resolve_dockerfile_base_image() {
+            local dockerfile="$1"
+            local from_image=""
+            local line rest token
+            declare -A arg_defaults=()
+
+            while IFS= read -r line || [[ -n "${line}" ]]; do
+              line="${line%%#*}"
+              [[ -z "${line//[[:space:]]/}" ]] && continue
+
+              if [[ "${line}" =~ ^[[:space:]]*ARG[[:space:]]+([A-Za-z_][A-Za-z0-9_]*)=(.+)[[:space:]]*$ ]]; then
+                arg_defaults["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
+                continue
+              fi
+
+              if [[ "${line}" =~ ^[[:space:]]*FROM[[:space:]]+(.+)$ ]]; then
+                rest="${BASH_REMATCH[1]}"
+                read -r -a tokens <<<"${rest}"
+                for token in "${tokens[@]}"; do
+                  if [[ "${token}" == --* ]]; then
+                    continue
+                  fi
+                  from_image="${token}"
+                  break
+                done
+              fi
+            done <"${dockerfile}"
+
+            if [[ -z "${from_image}" ]]; then
+              echo "Unable to resolve a runtime base image from ${dockerfile}" >&2
+              return 1
+            fi
+
+            for key in "${!arg_defaults[@]}"; do
+              from_image="${from_image//\$\{${key}\}/${arg_defaults[${key}]}}"
+              from_image="${from_image//\$${key}/${arg_defaults[${key}]}}"
+            done
+
+            if [[ "${from_image}" == *'${'* || "${from_image}" == *'$'* ]]; then
+              echo "Unresolved runtime base image reference in ${dockerfile}: ${from_image}" >&2
+              return 1
+            fi
+
+            printf '%s\n' "${from_image}"
+          }
+
+          base_image="$(resolve_dockerfile_base_image upstream/Dockerfile.goreleaser)"
 
           raw_manifest="$(docker buildx imagetools inspect --raw "$base_image")"
 
