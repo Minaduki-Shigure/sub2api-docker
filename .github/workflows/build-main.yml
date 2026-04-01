@@ -299,20 +299,20 @@ jobs:
           version_value="$(tr -d '\r\n' < upstream/backend/cmd/server/VERSION)"
           build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-          fingerprint_source="$(cat <<EOF
-          type=sub2api
-          logical_tag=latest
-          upstream_repo=${UPSTREAM_REPO}
-          upstream_ref=${UPSTREAM_REF}
-          upstream_sha=${upstream_sha}
-          runtime_base_image=${base_image}
-          runtime_base_digest_amd64=${base_digest_amd64}
-          runtime_base_digest_arm64=${base_digest_arm64}
-          runtime_base_digest_armv6=${base_digest_armv6}
-          runtime_base_digest_armv7=${base_digest_armv7}
-          build_policy_version=${BUILD_POLICY_VERSION}
-          arm32_patchset_version=${ARM32_PATCHSET_VERSION}
-          EOF
+          fingerprint_source="$(
+            printf '%s\n' \
+              "type=sub2api" \
+              "logical_tag=latest" \
+              "upstream_repo=${UPSTREAM_REPO}" \
+              "upstream_ref=${UPSTREAM_REF}" \
+              "upstream_sha=${upstream_sha}" \
+              "runtime_base_image=${base_image}" \
+              "runtime_base_digest_amd64=${base_digest_amd64}" \
+              "runtime_base_digest_arm64=${base_digest_arm64}" \
+              "runtime_base_digest_armv6=${base_digest_armv6}" \
+              "runtime_base_digest_armv7=${base_digest_armv7}" \
+              "build_policy_version=${BUILD_POLICY_VERSION}" \
+              "arm32_patchset_version=${ARM32_PATCHSET_VERSION}"
           )"
           expected_fingerprint="$(printf '%s' "$fingerprint_source" | sha256sum | awk '{print $1}')"
 
