@@ -75,6 +75,7 @@ jobs:
           gemini_file="upstream/backend/internal/service/gemini_oauth_service.go"
           billing_cache_file="upstream/backend/internal/repository/billing_cache.go"
           sora_sdk_arm_template="${RUNNER_TEMP}/sora_sdk_client_arm.go.template"
+          sora_sdk_arm_b64='Ly9nbzpidWlsZCBhcm0KLy8gK2J1aWxkIGFybQoKcGFja2FnZSBzZXJ2aWNlCgppbXBvcnQgKAoJImNvbnRleHQiCgkibmV0L2h0dHAiCgoJImdpdGh1Yi5jb20vV2VpLVNoYXcvc3ViMmFwaS9pbnRlcm5hbC9jb25maWciCikKCmNvbnN0IHNvcmFTREtEaXNhYmxlZE9uQVJNMzJNZXNzYWdlID0gIlNvcmEgU0RLIGlzIGRpc2FibGVkIG9uIDMyLWJpdCBBUk0gYnVpbGRzIgoKdHlwZSBTb3JhU0RLQ2xpZW50IHN0cnVjdCB7CgljZmcgKmNvbmZpZy5Db25maWcKfQoKZnVuYyBOZXdTb3JhU0RLQ2xpZW50KGNmZyAqY29uZmlnLkNvbmZpZywgaHR0cFVwc3RyZWFtIEhUVFBVcHN0cmVhbSwgdG9rZW5Qcm92aWRlciAqT3BlbkFJVG9rZW5Qcm92aWRlcikgKlNvcmFTREtDbGllbnQgewoJcmV0dXJuICZTb3JhU0RLQ2xpZW50e2NmZzogY2ZnfQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBTZXRBY2NvdW50UmVwb3NpdG9yaWVzKGFjY291bnRSZXBvIEFjY291bnRSZXBvc2l0b3J5LCBzb3JhQWNjb3VudFJlcG8gU29yYUFjY291bnRSZXBvc2l0b3J5KSB7fQoKZnVuYyAoYyAqU29yYVNES0NsaWVudCkgRW5hYmxlZCgpIGJvb2wgewoJcmV0dXJuIGZhbHNlCn0KCmZ1bmMgKGMgKlNvcmFTREtDbGllbnQpIHVuc3VwcG9ydGVkRXJyb3IoKSBlcnJvciB7CglyZXR1cm4gJlNvcmFVcHN0cmVhbUVycm9yewoJCVN0YXR1c0NvZGU6IGh0dHAuU3RhdHVzU2VydmljZVVuYXZhaWxhYmxlLAoJCU1lc3NhZ2U6ICAgIHNvcmFTREtEaXNhYmxlZE9uQVJNMzJNZXNzYWdlLAoJfQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBVcGxvYWRJbWFnZShjdHggY29udGV4dC5Db250ZXh0LCBhY2NvdW50ICpBY2NvdW50LCBkYXRhIFtdYnl0ZSwgZmlsZW5hbWUgc3RyaW5nKSAoc3RyaW5nLCBlcnJvcikgewoJcmV0dXJuICIiLCBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBDcmVhdGVJbWFnZVRhc2soY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgcmVxIFNvcmFJbWFnZVJlcXVlc3QpIChzdHJpbmcsIGVycm9yKSB7CglyZXR1cm4gIiIsIGMudW5zdXBwb3J0ZWRFcnJvcigpCn0KCmZ1bmMgKGMgKlNvcmFTREtDbGllbnQpIENyZWF0ZVZpZGVvVGFzayhjdHggY29udGV4dC5Db250ZXh0LCBhY2NvdW50ICpBY2NvdW50LCByZXEgU29yYVZpZGVvUmVxdWVzdCkgKHN0cmluZywgZXJyb3IpIHsKCXJldHVybiAiIiwgYy51bnN1cHBvcnRlZEVycm9yKCkKfQoKZnVuYyAoYyAqU29yYVNES0NsaWVudCkgQ3JlYXRlU3Rvcnlib2FyZFRhc2soY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgcmVxIFNvcmFTdG9yeWJvYXJkUmVxdWVzdCkgKHN0cmluZywgZXJyb3IpIHsKCXJldHVybiAiIiwgYy51bnN1cHBvcnRlZEVycm9yKCkKfQoKZnVuYyAoYyAqU29yYVNES0NsaWVudCkgVXBsb2FkQ2hhcmFjdGVyVmlkZW8oY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgZGF0YSBbXWJ5dGUpIChzdHJpbmcsIGVycm9yKSB7CglyZXR1cm4gIiIsIGMudW5zdXBwb3J0ZWRFcnJvcigpCn0KCmZ1bmMgKGMgKlNvcmFTREtDbGllbnQpIEdldENhbWVvU3RhdHVzKGN0eCBjb250ZXh0LkNvbnRleHQsIGFjY291bnQgKkFjY291bnQsIGNhbWVvSUQgc3RyaW5nKSAoKlNvcmFDYW1lb1N0YXR1cywgZXJyb3IpIHsKCXJldHVybiBuaWwsIGMudW5zdXBwb3J0ZWRFcnJvcigpCn0KCmZ1bmMgKGMgKlNvcmFTREtDbGllbnQpIERvd25sb2FkQ2hhcmFjdGVySW1hZ2UoY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgaW1hZ2VVUkwgc3RyaW5nKSAoW11ieXRlLCBlcnJvcikgewoJcmV0dXJuIG5pbCwgYy51bnN1cHBvcnRlZEVycm9yKCkKfQoKZnVuYyAoYyAqU29yYVNES0NsaWVudCkgVXBsb2FkQ2hhcmFjdGVySW1hZ2UoY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgZGF0YSBbXWJ5dGUpIChzdHJpbmcsIGVycm9yKSB7CglyZXR1cm4gIiIsIGMudW5zdXBwb3J0ZWRFcnJvcigpCn0KCmZ1bmMgKGMgKlNvcmFTREtDbGllbnQpIEZpbmFsaXplQ2hhcmFjdGVyKGN0eCBjb250ZXh0LkNvbnRleHQsIGFjY291bnQgKkFjY291bnQsIHJlcSBTb3JhQ2hhcmFjdGVyRmluYWxpemVSZXF1ZXN0KSAoc3RyaW5nLCBlcnJvcikgewoJcmV0dXJuICIiLCBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBTZXRDaGFyYWN0ZXJQdWJsaWMoY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgY2FtZW9JRCBzdHJpbmcpIGVycm9yIHsKCXJldHVybiBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBEZWxldGVDaGFyYWN0ZXIoY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgY2hhcmFjdGVySUQgc3RyaW5nKSBlcnJvciB7CglyZXR1cm4gYy51bnN1cHBvcnRlZEVycm9yKCkKfQoKZnVuYyAoYyAqU29yYVNES0NsaWVudCkgUG9zdFZpZGVvRm9yV2F0ZXJtYXJrRnJlZShjdHggY29udGV4dC5Db250ZXh0LCBhY2NvdW50ICpBY2NvdW50LCBnZW5lcmF0aW9uSUQgc3RyaW5nKSAoc3RyaW5nLCBlcnJvcikgewoJcmV0dXJuICIiLCBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBEZWxldGVQb3N0KGN0eCBjb250ZXh0LkNvbnRleHQsIGFjY291bnQgKkFjY291bnQsIHBvc3RJRCBzdHJpbmcpIGVycm9yIHsKCXJldHVybiBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBHZXRXYXRlcm1hcmtGcmVlVVJMQ3VzdG9tKGN0eCBjb250ZXh0LkNvbnRleHQsIGFjY291bnQgKkFjY291bnQsIHBhcnNlVVJMLCBwYXJzZVRva2VuLCBwb3N0SUQgc3RyaW5nKSAoc3RyaW5nLCBlcnJvcikgewoJcmV0dXJuICIiLCBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBFbmhhbmNlUHJvbXB0KGN0eCBjb250ZXh0LkNvbnRleHQsIGFjY291bnQgKkFjY291bnQsIHByb21wdCwgZXhwYW5zaW9uTGV2ZWwgc3RyaW5nLCBkdXJhdGlvblMgaW50KSAoc3RyaW5nLCBlcnJvcikgewoJcmV0dXJuICIiLCBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBHZXRJbWFnZVRhc2soY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgdGFza0lEIHN0cmluZykgKCpTb3JhSW1hZ2VUYXNrU3RhdHVzLCBlcnJvcikgewoJcmV0dXJuIG5pbCwgYy51bnN1cHBvcnRlZEVycm9yKCkKfQoKZnVuYyAoYyAqU29yYVNES0NsaWVudCkgR2V0VmlkZW9UYXNrKGN0eCBjb250ZXh0LkNvbnRleHQsIGFjY291bnQgKkFjY291bnQsIHRhc2tJRCBzdHJpbmcpICgqU29yYVZpZGVvVGFza1N0YXR1cywgZXJyb3IpIHsKCXJldHVybiBuaWwsIGMudW5zdXBwb3J0ZWRFcnJvcigpCn0K'
           if ! grep -q '^//go:build !arm$' "${sdk_file}"; then
             tmp_file="$(mktemp)"
             {
@@ -85,110 +86,7 @@ jobs:
             mv "${tmp_file}" "${sdk_file}"
           fi
 
-          cat >"${sora_sdk_arm_template}" <<'EOF'
-          //go:build arm
-          // +build arm
-
-          package service
-
-          import (
-          	"context"
-          	"net/http"
-
-          	"github.com/Wei-Shaw/sub2api/internal/config"
-          )
-
-          const soraSDKDisabledOnARM32Message = "Sora SDK is disabled on 32-bit ARM builds"
-
-          type SoraSDKClient struct {
-          	cfg *config.Config
-          }
-
-          func NewSoraSDKClient(cfg *config.Config, httpUpstream HTTPUpstream, tokenProvider *OpenAITokenProvider) *SoraSDKClient {
-          	return &SoraSDKClient{cfg: cfg}
-          }
-
-          func (c *SoraSDKClient) SetAccountRepositories(accountRepo AccountRepository, soraAccountRepo SoraAccountRepository) {}
-
-          func (c *SoraSDKClient) Enabled() bool {
-          	return false
-          }
-
-          func (c *SoraSDKClient) unsupportedError() error {
-          	return &SoraUpstreamError{
-          		StatusCode: http.StatusServiceUnavailable,
-          		Message:    soraSDKDisabledOnARM32Message,
-          	}
-          }
-
-          func (c *SoraSDKClient) UploadImage(ctx context.Context, account *Account, data []byte, filename string) (string, error) {
-          	return "", c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) CreateImageTask(ctx context.Context, account *Account, req SoraImageRequest) (string, error) {
-          	return "", c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) CreateVideoTask(ctx context.Context, account *Account, req SoraVideoRequest) (string, error) {
-          	return "", c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) CreateStoryboardTask(ctx context.Context, account *Account, req SoraStoryboardRequest) (string, error) {
-          	return "", c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) UploadCharacterVideo(ctx context.Context, account *Account, data []byte) (string, error) {
-          	return "", c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) GetCameoStatus(ctx context.Context, account *Account, cameoID string) (*SoraCameoStatus, error) {
-          	return nil, c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) DownloadCharacterImage(ctx context.Context, account *Account, imageURL string) ([]byte, error) {
-          	return nil, c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) UploadCharacterImage(ctx context.Context, account *Account, data []byte) (string, error) {
-          	return "", c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) FinalizeCharacter(ctx context.Context, account *Account, req SoraCharacterFinalizeRequest) (string, error) {
-          	return "", c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) SetCharacterPublic(ctx context.Context, account *Account, cameoID string) error {
-          	return c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) DeleteCharacter(ctx context.Context, account *Account, characterID string) error {
-          	return c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) PostVideoForWatermarkFree(ctx context.Context, account *Account, generationID string) (string, error) {
-          	return "", c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) DeletePost(ctx context.Context, account *Account, postID string) error {
-          	return c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) GetWatermarkFreeURLCustom(ctx context.Context, account *Account, parseURL, parseToken, postID string) (string, error) {
-          	return "", c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) EnhancePrompt(ctx context.Context, account *Account, prompt, expansionLevel string, durationS int) (string, error) {
-          	return "", c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) GetImageTask(ctx context.Context, account *Account, taskID string) (*SoraImageTaskStatus, error) {
-          	return nil, c.unsupportedError()
-          }
-
-          func (c *SoraSDKClient) GetVideoTask(ctx context.Context, account *Account, taskID string) (*SoraVideoTaskStatus, error) {
-          	return nil, c.unsupportedError()
-          }
-          EOF
+          printf '%s' "${sora_sdk_arm_b64}" | base64 -d >"${sora_sdk_arm_template}"
 
           cp "${sora_sdk_arm_template}" upstream/backend/internal/service/sora_sdk_client_arm.go
 
