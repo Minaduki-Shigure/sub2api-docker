@@ -23,7 +23,7 @@ env:
   UPSTREAM_REPO: ${{ vars.UPSTREAM_SUB2API_REPO || 'Wei-Shaw/sub2api' }}
   UPSTREAM_REF: ${{ vars.UPSTREAM_SUB2API_REF || 'main' }}
   BUILD_POLICY_VERSION: ${{ vars.BUILD_POLICY_VERSION || '1' }}
-  ARM32_PATCHSET_VERSION: arm32-patchset-v5
+  ARM32_PATCHSET_VERSION: arm32-patchset-v6
   FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
 
 jobs:
@@ -71,8 +71,129 @@ jobs:
         run: |
           set -euo pipefail
 
+          sora_sdk_file="upstream/backend/internal/service/sora_sdk_client.go"
+          sora_sdk_arm_template="${RUNNER_TEMP}/sora_sdk_client_arm.go.template"
           gemini_file="upstream/backend/internal/service/gemini_oauth_service.go"
           billing_cache_file="upstream/backend/internal/repository/billing_cache.go"
+
+          cat >"${sora_sdk_arm_template}" <<'EOF'
+          //go:build arm
+          // +build arm
+
+          package service
+
+          import (
+          	"context"
+          	"net/http"
+
+          	"github.com/Wei-Shaw/sub2api/internal/config"
+          )
+
+          const soraSDKDisabledOnARM32Message = "Sora SDK is disabled on 32-bit ARM builds"
+
+          type SoraSDKClient struct{}
+
+          func NewSoraSDKClient(cfg *config.Config, httpUpstream HTTPUpstream, tokenProvider *OpenAITokenProvider) *SoraSDKClient {
+          	return &SoraSDKClient{}
+          }
+
+          func (c *SoraSDKClient) SetAccountRepositories(accountRepo AccountRepository, soraAccountRepo SoraAccountRepository) {}
+
+          func (c *SoraSDKClient) Enabled() bool {
+          	return false
+          }
+
+          func (c *SoraSDKClient) unsupportedError() error {
+          	return &SoraUpstreamError{
+          		StatusCode: http.StatusServiceUnavailable,
+          		Message:    soraSDKDisabledOnARM32Message,
+          	}
+          }
+
+          func (c *SoraSDKClient) UploadImage(ctx context.Context, account *Account, data []byte, filename string) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) CreateImageTask(ctx context.Context, account *Account, req SoraImageRequest) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) CreateVideoTask(ctx context.Context, account *Account, req SoraVideoRequest) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) CreateStoryboardTask(ctx context.Context, account *Account, req SoraStoryboardRequest) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) UploadCharacterVideo(ctx context.Context, account *Account, data []byte) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) GetCameoStatus(ctx context.Context, account *Account, cameoID string) (*SoraCameoStatus, error) {
+          	return nil, c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) DownloadCharacterImage(ctx context.Context, account *Account, imageURL string) ([]byte, error) {
+          	return nil, c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) UploadCharacterImage(ctx context.Context, account *Account, data []byte) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) FinalizeCharacter(ctx context.Context, account *Account, req SoraCharacterFinalizeRequest) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) SetCharacterPublic(ctx context.Context, account *Account, cameoID string) error {
+          	return c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) DeleteCharacter(ctx context.Context, account *Account, characterID string) error {
+          	return c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) PostVideoForWatermarkFree(ctx context.Context, account *Account, generationID string) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) DeletePost(ctx context.Context, account *Account, postID string) error {
+          	return c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) GetWatermarkFreeURLCustom(ctx context.Context, account *Account, parseURL, parseToken, postID string) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) EnhancePrompt(ctx context.Context, account *Account, prompt, expansionLevel string, durationS int) (string, error) {
+          	return "", c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) GetImageTask(ctx context.Context, account *Account, taskID string) (*SoraImageTaskStatus, error) {
+          	return nil, c.unsupportedError()
+          }
+
+          func (c *SoraSDKClient) GetVideoTask(ctx context.Context, account *Account, taskID string) (*SoraVideoTaskStatus, error) {
+          	return nil, c.unsupportedError()
+          }
+          EOF
+
+          if [[ -f "${sora_sdk_file}" ]]; then
+            if ! grep -q '^//go:build !arm$' "${sora_sdk_file}"; then
+              tmp_file="$(mktemp)"
+              {
+                printf '%s\n' '//go:build !arm'
+                printf '%s\n\n' '// +build !arm'
+                cat "${sora_sdk_file}"
+              } >"${tmp_file}"
+              mv "${tmp_file}" "${sora_sdk_file}"
+            fi
+            cp "${sora_sdk_arm_template}" upstream/backend/internal/service/sora_sdk_client_arm.go
+            echo "Applied conditional arm32 Sora stub patch"
+          else
+            echo "Sora SDK source not present; skipping Sora-specific arm32 patch"
+          fi
 
           if [[ -f "${gemini_file}" ]]; then
             perl -0pi -e 's/const \(\n\tGB = 1024 \* 1024 \* 1024\n\tTB = 1024 \* GB\n/const (\n\tGB int64 = 1024 * 1024 * 1024\n\tTB int64 = 1024 * GB\n/s' "${gemini_file}"
@@ -95,12 +216,13 @@ jobs:
             echo "- Scope: \`linux/arm/v6\`, \`linux/arm/v7\`"
             echo
             echo "### Confirmed build blockers patched"
+            echo "- If Sora SDK source exists in the checked-out upstream version, it is replaced by an arm-only stub"
             echo "- Gemini OAuth storage constants are rewritten to \`int64\` when present"
             echo "- Billing cache jitter now uses \`rand.Int64N(int64(...))\` instead of overflowing \`int(...)\` casts when present"
             echo
             echo "### Known behavior impact"
-            echo "- No Sora-specific compatibility patch is applied anymore"
-            echo "- arm32 builds rely only on currently known generic overflow fixes"
+            echo "- For versions before Sora removal, arm32 builds disable Sora SDK"
+            echo "- For versions after Sora removal, the Sora patch is skipped automatically"
             echo
             echo "### Watchlist from repo scan"
             echo "- Multiple \`int(time.Until(...).Seconds())\` and \`int(duration.Milliseconds())\` conversions remain in the codebase"
@@ -239,8 +361,8 @@ jobs:
           set -euo pipefail
 
           watchlist_file="${RUNNER_TEMP}/arm32-watchlist-main.txt"
-          rg -n 'int\(time\.(Until|Since)\([^)]+\)\.(Seconds|Milliseconds)\(\)\)|int\([A-Za-z0-9_\.]+\.Milliseconds\(\)\)|int\([A-Za-z0-9_\.]+\.Seconds\(\)\)' \
-            upstream/backend -g '!**/*_test.go' >"${watchlist_file}" || true
+          grep -R -nE --include='*.go' 'int\(time\.(Until|Since)\([^)]+\)\.(Seconds|Milliseconds)\(\)\)|int\([A-Za-z0-9_\.]+\.Milliseconds\(\)\)|int\([A-Za-z0-9_\.]+\.Seconds\(\)\)' \
+            upstream/backend | grep -v '_test.go' >"${watchlist_file}" || true
 
           count="$(wc -l <"${watchlist_file}" | tr -d ' ')"
           if [[ "${count}" -gt 0 ]]; then
