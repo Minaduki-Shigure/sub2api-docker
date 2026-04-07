@@ -23,7 +23,7 @@ env:
   UPSTREAM_REPO: ${{ vars.UPSTREAM_SUB2API_REPO || 'Wei-Shaw/sub2api' }}
   UPSTREAM_REF: ${{ vars.UPSTREAM_SUB2API_REF || 'main' }}
   BUILD_POLICY_VERSION: ${{ vars.BUILD_POLICY_VERSION || '1' }}
-  ARM32_PATCHSET_VERSION: arm32-patchset-v4
+  ARM32_PATCHSET_VERSION: arm32-patchset-v5
   FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
 
 jobs:
@@ -71,27 +71,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          sdk_file="upstream/backend/internal/service/sora_sdk_client.go"
           gemini_file="upstream/backend/internal/service/gemini_oauth_service.go"
           billing_cache_file="upstream/backend/internal/repository/billing_cache.go"
-          sora_sdk_arm_template="${RUNNER_TEMP}/sora_sdk_client_arm.go.template"
-          sora_sdk_arm_b64='Ly9nbzpidWlsZCBhcm0KLy8gK2J1aWxkIGFybQoKcGFja2FnZSBzZXJ2aWNlCgppbXBvcnQgKAoJImNvbnRleHQiCgkibmV0L2h0dHAiCgoJImdpdGh1Yi5jb20vV2VpLVNoYXcvc3ViMmFwaS9pbnRlcm5hbC9jb25maWciCikKCmNvbnN0IHNvcmFTREtEaXNhYmxlZE9uQVJNMzJNZXNzYWdlID0gIlNvcmEgU0RLIGlzIGRpc2FibGVkIG9uIDMyLWJpdCBBUk0gYnVpbGRzIgoKdHlwZSBTb3JhU0RLQ2xpZW50IHN0cnVjdCB7CgljZmcgKmNvbmZpZy5Db25maWcKfQoKZnVuYyBOZXdTb3JhU0RLQ2xpZW50KGNmZyAqY29uZmlnLkNvbmZpZywgaHR0cFVwc3RyZWFtIEhUVFBVcHN0cmVhbSwgdG9rZW5Qcm92aWRlciAqT3BlbkFJVG9rZW5Qcm92aWRlcikgKlNvcmFTREtDbGllbnQgewoJcmV0dXJuICZTb3JhU0RLQ2xpZW50e2NmZzogY2ZnfQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBTZXRBY2NvdW50UmVwb3NpdG9yaWVzKGFjY291bnRSZXBvIEFjY291bnRSZXBvc2l0b3J5LCBzb3JhQWNjb3VudFJlcG8gU29yYUFjY291bnRSZXBvc2l0b3J5KSB7fQoKZnVuYyAoYyAqU29yYVNES0NsaWVudCkgRW5hYmxlZCgpIGJvb2wgewoJcmV0dXJuIGZhbHNlCn0KCmZ1bmMgKGMgKlNvcmFTREtDbGllbnQpIHVuc3VwcG9ydGVkRXJyb3IoKSBlcnJvciB7CglyZXR1cm4gJlNvcmFVcHN0cmVhbUVycm9yewoJCVN0YXR1c0NvZGU6IGh0dHAuU3RhdHVzU2VydmljZVVuYXZhaWxhYmxlLAoJCU1lc3NhZ2U6ICAgIHNvcmFTREtEaXNhYmxlZE9uQVJNMzJNZXNzYWdlLAoJfQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBVcGxvYWRJbWFnZShjdHggY29udGV4dC5Db250ZXh0LCBhY2NvdW50ICpBY2NvdW50LCBkYXRhIFtdYnl0ZSwgZmlsZW5hbWUgc3RyaW5nKSAoc3RyaW5nLCBlcnJvcikgewoJcmV0dXJuICIiLCBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBDcmVhdGVJbWFnZVRhc2soY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgcmVxIFNvcmFJbWFnZVJlcXVlc3QpIChzdHJpbmcsIGVycm9yKSB7CglyZXR1cm4gIiIsIGMudW5zdXBwb3J0ZWRFcnJvcigpCn0KCmZ1bmMgKGMgKlNvcmFTREtDbGllbnQpIENyZWF0ZVZpZGVvVGFzayhjdHggY29udGV4dC5Db250ZXh0LCBhY2NvdW50ICpBY2NvdW50LCByZXEgU29yYVZpZGVvUmVxdWVzdCkgKHN0cmluZywgZXJyb3IpIHsKCXJldHVybiAiIiwgYy51bnN1cHBvcnRlZEVycm9yKCkKfQoKZnVuYyAoYyAqU29yYVNES0NsaWVudCkgQ3JlYXRlU3Rvcnlib2FyZFRhc2soY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgcmVxIFNvcmFTdG9yeWJvYXJkUmVxdWVzdCkgKHN0cmluZywgZXJyb3IpIHsKCXJldHVybiAiIiwgYy51bnN1cHBvcnRlZEVycm9yKCkKfQoKZnVuYyAoYyAqU29yYVNES0NsaWVudCkgVXBsb2FkQ2hhcmFjdGVyVmlkZW8oY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgZGF0YSBbXWJ5dGUpIChzdHJpbmcsIGVycm9yKSB7CglyZXR1cm4gIiIsIGMudW5zdXBwb3J0ZWRFcnJvcigpCn0KCmZ1bmMgKGMgKlNvcmFTREtDbGllbnQpIEdldENhbWVvU3RhdHVzKGN0eCBjb250ZXh0LkNvbnRleHQsIGFjY291bnQgKkFjY291bnQsIGNhbWVvSUQgc3RyaW5nKSAoKlNvcmFDYW1lb1N0YXR1cywgZXJyb3IpIHsKCXJldHVybiBuaWwsIGMudW5zdXBwb3J0ZWRFcnJvcigpCn0KCmZ1bmMgKGMgKlNvcmFTREtDbGllbnQpIERvd25sb2FkQ2hhcmFjdGVySW1hZ2UoY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgaW1hZ2VVUkwgc3RyaW5nKSAoW11ieXRlLCBlcnJvcikgewoJcmV0dXJuIG5pbCwgYy51bnN1cHBvcnRlZEVycm9yKCkKfQoKZnVuYyAoYyAqU29yYVNES0NsaWVudCkgVXBsb2FkQ2hhcmFjdGVySW1hZ2UoY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgZGF0YSBbXWJ5dGUpIChzdHJpbmcsIGVycm9yKSB7CglyZXR1cm4gIiIsIGMudW5zdXBwb3J0ZWRFcnJvcigpCn0KCmZ1bmMgKGMgKlNvcmFTREtDbGllbnQpIEZpbmFsaXplQ2hhcmFjdGVyKGN0eCBjb250ZXh0LkNvbnRleHQsIGFjY291bnQgKkFjY291bnQsIHJlcSBTb3JhQ2hhcmFjdGVyRmluYWxpemVSZXF1ZXN0KSAoc3RyaW5nLCBlcnJvcikgewoJcmV0dXJuICIiLCBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBTZXRDaGFyYWN0ZXJQdWJsaWMoY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgY2FtZW9JRCBzdHJpbmcpIGVycm9yIHsKCXJldHVybiBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBEZWxldGVDaGFyYWN0ZXIoY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgY2hhcmFjdGVySUQgc3RyaW5nKSBlcnJvciB7CglyZXR1cm4gYy51bnN1cHBvcnRlZEVycm9yKCkKfQoKZnVuYyAoYyAqU29yYVNES0NsaWVudCkgUG9zdFZpZGVvRm9yV2F0ZXJtYXJrRnJlZShjdHggY29udGV4dC5Db250ZXh0LCBhY2NvdW50ICpBY2NvdW50LCBnZW5lcmF0aW9uSUQgc3RyaW5nKSAoc3RyaW5nLCBlcnJvcikgewoJcmV0dXJuICIiLCBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBEZWxldGVQb3N0KGN0eCBjb250ZXh0LkNvbnRleHQsIGFjY291bnQgKkFjY291bnQsIHBvc3RJRCBzdHJpbmcpIGVycm9yIHsKCXJldHVybiBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBHZXRXYXRlcm1hcmtGcmVlVVJMQ3VzdG9tKGN0eCBjb250ZXh0LkNvbnRleHQsIGFjY291bnQgKkFjY291bnQsIHBhcnNlVVJMLCBwYXJzZVRva2VuLCBwb3N0SUQgc3RyaW5nKSAoc3RyaW5nLCBlcnJvcikgewoJcmV0dXJuICIiLCBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBFbmhhbmNlUHJvbXB0KGN0eCBjb250ZXh0LkNvbnRleHQsIGFjY291bnQgKkFjY291bnQsIHByb21wdCwgZXhwYW5zaW9uTGV2ZWwgc3RyaW5nLCBkdXJhdGlvblMgaW50KSAoc3RyaW5nLCBlcnJvcikgewoJcmV0dXJuICIiLCBjLnVuc3VwcG9ydGVkRXJyb3IoKQp9CgpmdW5jIChjICpTb3JhU0RLQ2xpZW50KSBHZXRJbWFnZVRhc2soY3R4IGNvbnRleHQuQ29udGV4dCwgYWNjb3VudCAqQWNjb3VudCwgdGFza0lEIHN0cmluZykgKCpTb3JhSW1hZ2VUYXNrU3RhdHVzLCBlcnJvcikgewoJcmV0dXJuIG5pbCwgYy51bnN1cHBvcnRlZEVycm9yKCkKfQoKZnVuYyAoYyAqU29yYVNES0NsaWVudCkgR2V0VmlkZW9UYXNrKGN0eCBjb250ZXh0LkNvbnRleHQsIGFjY291bnQgKkFjY291bnQsIHRhc2tJRCBzdHJpbmcpICgqU29yYVZpZGVvVGFza1N0YXR1cywgZXJyb3IpIHsKCXJldHVybiBuaWwsIGMudW5zdXBwb3J0ZWRFcnJvcigpCn0K'
-          if ! grep -q '^//go:build !arm$' "${sdk_file}"; then
-            tmp_file="$(mktemp)"
-            {
-              printf '%s\n' '//go:build !arm'
-              printf '%s\n\n' '// +build !arm'
-              cat "${sdk_file}"
-            } >"${tmp_file}"
-            mv "${tmp_file}" "${sdk_file}"
+
+          if [[ -f "${gemini_file}" ]]; then
+            perl -0pi -e 's/const \(\n\tGB = 1024 \* 1024 \* 1024\n\tTB = 1024 \* GB\n/const (\n\tGB int64 = 1024 * 1024 * 1024\n\tTB int64 = 1024 * GB\n/s' "${gemini_file}"
           fi
 
-          printf '%s' "${sora_sdk_arm_b64}" | base64 -d >"${sora_sdk_arm_template}"
-
-          cp "${sora_sdk_arm_template}" upstream/backend/internal/service/sora_sdk_client_arm.go
-
-          perl -0pi -e 's/const \(\n\tGB = 1024 \* 1024 \* 1024\n\tTB = 1024 \* GB\n/const (\n\tGB int64 = 1024 * 1024 * 1024\n\tTB int64 = 1024 * GB\n/s' "${gemini_file}"
-          perl -0pi -e 's/time\.Duration\(rand\.IntN\(int\(billingCacheJitter\)\)\)/time.Duration(rand.Int64N(int64(billingCacheJitter)))/g' "${billing_cache_file}"
+          if [[ -f "${billing_cache_file}" ]]; then
+            perl -0pi -e 's/time\.Duration\(rand\.IntN\(int\(billingCacheJitter\)\)\)/time.Duration(rand.Int64N(int64(billingCacheJitter)))/g' "${billing_cache_file}"
+          fi
 
       - name: Report arm32 compatibility patchset
         shell: bash
@@ -106,13 +95,12 @@ jobs:
             echo "- Scope: \`linux/arm/v6\`, \`linux/arm/v7\`"
             echo
             echo "### Confirmed build blockers patched"
-            echo "- Sora SDK dependency is disabled on arm32 by replacing \`sora_sdk_client.go\` with an arm-only stub"
-            echo "- Gemini OAuth storage constants are rewritten to \`int64\`"
-            echo "- Billing cache jitter now uses \`rand.Int64N(int64(...))\` instead of overflowing \`int(...)\` casts"
+            echo "- Gemini OAuth storage constants are rewritten to \`int64\` when present"
+            echo "- Billing cache jitter now uses \`rand.Int64N(int64(...))\` instead of overflowing \`int(...)\` casts when present"
             echo
             echo "### Known behavior impact"
-            echo "- arm32 images can build"
-            echo "- Sora SDK features are unavailable on arm32"
+            echo "- No Sora-specific compatibility patch is applied anymore"
+            echo "- arm32 builds rely only on currently known generic overflow fixes"
             echo
             echo "### Watchlist from repo scan"
             echo "- Multiple \`int(time.Until(...).Seconds())\` and \`int(duration.Milliseconds())\` conversions remain in the codebase"
