@@ -30,6 +30,14 @@ jobs:
   build-main:
     runs-on: ubuntu-latest
     steps:
+      - name: Check out upstream repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ env.UPSTREAM_REPO }}
+          ref: ${{ env.UPSTREAM_REF }}
+          path: upstream
+          fetch-depth: 0
+
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -43,7 +51,9 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26.1"
+          go-version-file: upstream/backend/go.mod
+          check-latest: false
+          cache-dependency-path: upstream/backend/go.sum
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -57,14 +67,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Check out upstream repository
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ env.UPSTREAM_REPO }}
-          ref: ${{ env.UPSTREAM_REF }}
-          path: upstream
-          fetch-depth: 0
 
       - name: Apply arm32 compatibility patchset
         shell: bash
