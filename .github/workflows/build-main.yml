@@ -23,7 +23,7 @@ env:
   UPSTREAM_REPO: ${{ vars.UPSTREAM_SUB2API_REPO || 'Wei-Shaw/sub2api' }}
   UPSTREAM_REF: ${{ vars.UPSTREAM_SUB2API_REF || 'main' }}
   BUILD_POLICY_VERSION: ${{ vars.BUILD_POLICY_VERSION || '1' }}
-  ARM32_PATCHSET_VERSION: arm32-patchset-v6
+  ARM32_PATCHSET_VERSION: arm32-patchset-v7
   FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
 
 jobs:
@@ -77,6 +77,7 @@ jobs:
           sora_sdk_arm_template="${RUNNER_TEMP}/sora_sdk_client_arm.go.template"
           gemini_file="upstream/backend/internal/service/gemini_oauth_service.go"
           billing_cache_file="upstream/backend/internal/repository/billing_cache.go"
+          frontend_client_file="upstream/frontend/src/api/client.ts"
 
           cat >"${sora_sdk_arm_template}" <<'EOF'
           //go:build arm
@@ -205,6 +206,10 @@ jobs:
             perl -0pi -e 's/time\.Duration\(rand\.IntN\(int\(billingCacheJitter\)\)\)/time.Duration(rand.Int64N(int64(billingCacheJitter)))/g' "${billing_cache_file}"
           fi
 
+          if [[ -f "${frontend_client_file}" ]]; then
+            perl -0pi -e 's/const resp = apiResponse as Record<string, unknown>/const resp = apiResponse as unknown as Record<string, unknown>/g' "${frontend_client_file}"
+          fi
+
       - name: Report arm32 compatibility patchset
         shell: bash
         run: |
@@ -221,6 +226,7 @@ jobs:
             echo "- If Sora SDK source exists in the checked-out upstream version, it is replaced by an arm-only stub"
             echo "- Gemini OAuth storage constants are rewritten to \`int64\` when present"
             echo "- Billing cache jitter now uses \`rand.Int64N(int64(...))\` instead of overflowing \`int(...)\` casts when present"
+            echo "- Frontend API client narrows \`ApiResponse<unknown>\` via \`unknown as Record<string, unknown>\` when needed for newer TypeScript"
             echo
             echo "### Known behavior impact"
             echo "- For versions before Sora removal, arm32 builds disable Sora SDK"
