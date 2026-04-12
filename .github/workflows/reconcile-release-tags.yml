@@ -27,7 +27,7 @@ env:
   UPSTREAM_REPO: ${{ vars.UPSTREAM_SUB2API_REPO || 'Wei-Shaw/sub2api' }}
   RELEASE_TAG_LOOKBACK: ${{ vars.RELEASE_TAG_LOOKBACK || '20' }}
   BUILD_POLICY_VERSION: ${{ vars.BUILD_POLICY_VERSION || '1' }}
-  ARM32_PATCHSET_VERSION: arm32-patchset-v6
+  ARM32_PATCHSET_VERSION: arm32-patchset-v7
   FORCE_REBUILD: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force || 'false' }}
   REQUESTED_TAGS: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tags || '' }}
 
@@ -114,6 +114,7 @@ jobs:
             echo "- If Sora SDK source exists in the checked-out upstream version, it is replaced by an arm-only stub"
             echo "- Gemini OAuth storage constants are rewritten to \`int64\` when present"
             echo "- Billing cache jitter now uses \`rand.Int64N(int64(...))\` instead of overflowing \`int(...)\` casts when present"
+            echo "- Frontend API client narrows \`ApiResponse<unknown>\` via \`unknown as Record<string, unknown>\` when needed for newer TypeScript"
             echo
             echo "### Known behavior impact"
             echo "- For versions before Sora removal, arm32 builds disable Sora SDK"
@@ -245,6 +246,7 @@ jobs:
             local sora_sdk_file="${repo_root}/backend/internal/service/sora_sdk_client.go"
             local gemini_file="${repo_root}/backend/internal/service/gemini_oauth_service.go"
             local billing_cache_file="${repo_root}/backend/internal/repository/billing_cache.go"
+            local frontend_client_file="${repo_root}/frontend/src/api/client.ts"
 
             echo "Applying arm32 compatibility patchset ${ARM32_PATCHSET_VERSION} in ${repo_root}"
 
@@ -268,6 +270,10 @@ jobs:
 
             if [[ -f "${billing_cache_file}" ]]; then
               perl -0pi -e 's/time\.Duration\(rand\.IntN\(int\(billingCacheJitter\)\)\)/time.Duration(rand.Int64N(int64(billingCacheJitter)))/g' "${billing_cache_file}"
+            fi
+
+            if [[ -f "${frontend_client_file}" ]]; then
+              perl -0pi -e 's/const resp = apiResponse as Record<string, unknown>/const resp = apiResponse as unknown as Record<string, unknown>/g' "${frontend_client_file}"
             fi
           }
 
